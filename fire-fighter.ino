@@ -3,23 +3,23 @@
 #include <Bluepad32.h>
 
 #define LED 2
-#define LEFT_FRONT_MOTOR_PIN_1 12
-#define LEFT_FRONT_MOTOR_PIN_2 14
-#define LEFT_FRONT_MOTOR_PIN_PWM 13
+#define LEFT_FRONT_MOTOR_PIN_1 26 
+#define LEFT_FRONT_MOTOR_PIN_2 27 
+#define LEFT_FRONT_MOTOR_PIN_PWM 14
 
-#define LEFT_BACK_MOTOR_PIN_PWM 27
-#define LEFT_BACK_MOTOR_PIN_1 26
-#define LEFT_BACK_MOTOR_PIN_2 25
 
-// TODO: map these pins
-#define RIGHT_FRONT_MOTOR_PIN_1 25
-#define RIGHT_FRONT_MOTOR_PIN_2 33
-#define RIGHT_FRONT_MOTOR_PIN_PWM 32
+#define LEFT_BACK_MOTOR_PIN_1 5 
+#define LEFT_BACK_MOTOR_PIN_2 17 
+#define LEFT_BACK_MOTOR_PIN_PWM 16
 
 // TODO: map these pins
-#define RIGHT_BACK_MOTOR_PIN_PWM 16
-#define RIGHT_BACK_MOTOR_PIN_1 17
-#define RIGHT_BACK_MOTOR_PIN_2 5
+#define RIGHT_FRONT_MOTOR_PIN_1 33 
+#define RIGHT_FRONT_MOTOR_PIN_2 25 
+#define RIGHT_FRONT_MOTOR_PIN_PWM 32 
+
+#define RIGHT_BACK_MOTOR_PIN_1 19 
+#define RIGHT_BACK_MOTOR_PIN_2 18 
+#define RIGHT_BACK_MOTOR_PIN_PWM 21 
 
 typedef enum {
     FORWARD,
@@ -43,7 +43,7 @@ void onConnectedController(ControllerPtr ctl) {
         if (myControllers[i] == nullptr) {
             Serial.printf("CALLBACK: Controller is connected, index=%d\n", i);
             // Additionally, you can get certain gamepad properties like:
-            // Model, VID, PID, BTAddr, flags, etc.
+            // Model, VID, PID34, BTAddr, flags, etc.
             ControllerProperties properties = ctl->getProperties();
             Serial.printf("Controller model: %s, VID=0x%04x, PID=0x%04x\n", ctl->getModelName().c_str(), properties.vendor_id, properties.product_id);
             myControllers[i] = ctl;
@@ -99,27 +99,33 @@ void dumpGamepad(ControllerPtr ctl) {
     );
 }
 
-void move_motor(motor_e motor, uint8_t val, direction_e dir) {
+void move_motor(motor_e motor, int16_t val) {
+    // Determine direction based on the sign of 'val'
+    direction_e dir = (val >= 0) ? FORWARD : BACKWARD;
+
+    // Ensure 'val' is positive for PWM (0-255)
+    uint8_t pwm_val = abs(val);
+
     switch (motor) {
     case FRONT_LEFT:
-        analogWrite(LEFT_FRONT_MOTOR_PIN_PWM, val);
+        analogWrite(LEFT_FRONT_MOTOR_PIN_PWM, pwm_val);
         digitalWrite(LEFT_FRONT_MOTOR_PIN_1, dir);
         digitalWrite(LEFT_FRONT_MOTOR_PIN_2, !dir);
         break;
     case BACK_LEFT:
-        analogWrite(LEFT_BACK_MOTOR_PIN_PWM, val);
+        analogWrite(LEFT_BACK_MOTOR_PIN_PWM, pwm_val);
         digitalWrite(LEFT_BACK_MOTOR_PIN_1, dir);
         digitalWrite(LEFT_BACK_MOTOR_PIN_2, !dir);
         break;
     case FRONT_RIGHT:
-        analogWrite(RIGHT_FRONT_MOTOR_PIN_PWM, val);
-        digitalWrite(RIGHT_FRONT_MOTOR_PIN_1, dir);
-        digitalWrite(RIGHT_FRONT_MOTOR_PIN_2, !dir);
+        analogWrite(RIGHT_FRONT_MOTOR_PIN_PWM, pwm_val);
+        digitalWrite(RIGHT_FRONT_MOTOR_PIN_1, !dir);  // reverse motor wiring
+        digitalWrite(RIGHT_FRONT_MOTOR_PIN_2, dir);   // reverse motor wiring
         break;
     case BACK_RIGHT:
-        analogWrite(RIGHT_BACK_MOTOR_PIN_PWM, val);
-        digitalWrite(RIGHT_BACK_MOTOR_PIN_1, dir);
-        digitalWrite(RIGHT_BACK_MOTOR_PIN_2, !dir);
+        analogWrite(RIGHT_BACK_MOTOR_PIN_PWM, pwm_val);
+        digitalWrite(RIGHT_BACK_MOTOR_PIN_1, !dir);   // reverse motor wiring
+        digitalWrite(RIGHT_BACK_MOTOR_PIN_2, dir);    // reverse motor wiring
         break;
     }
 }
@@ -136,26 +142,18 @@ void processGamepad(ControllerPtr ctl) {
 
     //== PS4 Square button = 0x0004 ==//
     if (ctl->buttons() == 0x0004) {
-        analogWrite(LEFT_FRONT_MOTOR_PIN_PWM, 100);
-        digitalWrite(LEFT_FRONT_MOTOR_PIN_1, LOW);
-        digitalWrite(LEFT_FRONT_MOTOR_PIN_2, HIGH);
     }
     if (ctl->buttons() != 0x0004) {
     }
 
     //== PS4 Triangle button = 0x0008 ==//
     if (ctl->buttons() == 0x0008) {
-        digitalWrite(LEFT_FRONT_MOTOR_PIN_1, LOW);
-        digitalWrite(LEFT_FRONT_MOTOR_PIN_2, LOW);
     }
     if (ctl->buttons() != 0x0008) {
     }
 
     //== PS4 Circle button = 0x0002 ==//
     if (ctl->buttons() == 0x0002) {
-        analogWrite(LEFT_FRONT_MOTOR_PIN_PWM, 255);
-        digitalWrite(LEFT_FRONT_MOTOR_PIN_1, HIGH);
-        digitalWrite(LEFT_FRONT_MOTOR_PIN_2, LOW);
     }
     if (ctl->buttons() != 0x0002) {
     }
@@ -224,43 +222,52 @@ void processGamepad(ControllerPtr ctl) {
         // code for when L2 button is released
     }
 
-    //== LEFT JOYSTICK - UP ==//
+    // Define a common variable for speed adjustment
+    int common_speed = 0;
+
+    //== LEFT JOYSTICK - UP/DOWN (FORWARD/BACKWARD) ==//
     if (ctl->axisY() <= -25) {
-        // code for when left joystick is pushed up
-        int value_remap = map(ctl->axisY(), -25, -520, 0, 255);
-        move_motor(FRONT_LEFT, value_remap, FORWARD);
+        // moving forward
+        common_speed = map(ctl->axisY(), -25, -520, 0, 255);
+    } else if (ctl->axisY() >= 25) {
+        // moving backward
+        common_speed = map(ctl->axisY(), 25, 520, 0, -255);
+    } else {
+        // no forward/backward movement
+        common_speed = 0;
     }
 
-    //== LEFT JOYSTICK - DOWN ==//
-    else if (ctl->axisY() >= 25) {
-        int value_remap = map(ctl->axisY(), 25, 520, 0, 255);
-        move_motor(FRONT_LEFT, value_remap, BACKWARD);
-    }
-
-    //== LEFT JOYSTICK - NONE ==//
-    else {
-        move_motor(FRONT_LEFT, 0, FORWARD);
-    }
-
-    //== LEFT JOYSTICK - LEFT ==//
+    //== LEFT JOYSTICK - LEFT/RIGHT (TURNING) ==//
+    int turn_speed = 0;
     if (ctl->axisX() <= -25) {
-        // code for when left joystick is pushed left
+        // turning left
+        turn_speed = map(ctl->axisX(), -25, -520, 0, -150);
+    } else if (ctl->axisX() >= 25) {
+        // turning right
+        turn_speed = map(ctl->axisX(), 25, 520, 0, 150);
+    } else {
+        // no turning movement
+        turn_speed = 0;
     }
 
-    //== LEFT JOYSTICK - RIGHT ==//
-    if (ctl->axisX() >= 25) {
-        // code for when left joystick is pushed right
+    //== RIGHT JOYSTICK - X AXIS (STRAFING LEFT/RIGHT) ==//
+    int strafe_speed = 0;
+    if (ctl->axisRX() <= -25) {
+        // strafing left
+        strafe_speed = map(ctl->axisRX(), -25, -520, 0, -255);
+    } else if (ctl->axisRX() >= 25) {
+        // strafing right
+        strafe_speed = map(ctl->axisRX(), 25, 520, 0, 255);
+    } else {
+        // no strafing movement
+        strafe_speed = 0;
     }
 
-    //== LEFT JOYSTICK DEADZONE ==//
-    if (ctl->axisY() > -25 && ctl->axisY() < 25 && ctl->axisX() > -25 && ctl->axisX() < 25) {
-        // code for when left joystick is at idle
-    }
-
-    //== RIGHT JOYSTICK - X AXIS ==//
-    if (ctl->axisRX()) {
-        // code for when right joystick moves along x-axis
-    }
+    // Combine forward/backward, turning, and strafing inputs for each motor
+    move_motor(FRONT_LEFT, common_speed + turn_speed + strafe_speed);   // front-left motor
+    move_motor(FRONT_RIGHT, common_speed - turn_speed + strafe_speed);  // front-right motor
+    move_motor(BACK_LEFT, common_speed + turn_speed - strafe_speed);    // back-left motor
+    move_motor(BACK_RIGHT, common_speed - turn_speed - strafe_speed);   // back-right motor
 
     //== RIGHT JOYSTICK - Y AXIS ==//
     if (ctl->axisRY()) {
@@ -295,6 +302,12 @@ void setup() {
     pinMode(RIGHT_FRONT_MOTOR_PIN_1, OUTPUT);
     pinMode(RIGHT_FRONT_MOTOR_PIN_2, OUTPUT);
     pinMode(RIGHT_FRONT_MOTOR_PIN_PWM, OUTPUT);
+    pinMode(LEFT_BACK_MOTOR_PIN_1, OUTPUT);
+    pinMode(LEFT_BACK_MOTOR_PIN_2, OUTPUT);
+    pinMode(LEFT_BACK_MOTOR_PIN_PWM, OUTPUT);
+    pinMode(RIGHT_BACK_MOTOR_PIN_1, OUTPUT);
+    pinMode(RIGHT_BACK_MOTOR_PIN_2, OUTPUT);
+    pinMode(RIGHT_BACK_MOTOR_PIN_PWM, OUTPUT);
     // enforce low
     digitalWrite(LED, LOW);
     digitalWrite(LEFT_FRONT_MOTOR_PIN_1, LOW);
@@ -303,6 +316,12 @@ void setup() {
     digitalWrite(RIGHT_FRONT_MOTOR_PIN_1, LOW);
     digitalWrite(RIGHT_FRONT_MOTOR_PIN_2, LOW);
     digitalWrite(RIGHT_FRONT_MOTOR_PIN_PWM, LOW);
+    digitalWrite(LEFT_BACK_MOTOR_PIN_1, LOW);
+    digitalWrite(LEFT_BACK_MOTOR_PIN_2, LOW);
+    digitalWrite(LEFT_BACK_MOTOR_PIN_PWM, LOW);
+    digitalWrite(RIGHT_BACK_MOTOR_PIN_1, LOW);
+    digitalWrite(RIGHT_BACK_MOTOR_PIN_2, LOW);
+    digitalWrite(RIGHT_BACK_MOTOR_PIN_PWM, LOW);
 
     // Setup the Bluepad32 callbacks
     BP32.setup(&onConnectedController, &onDisconnectedController);
@@ -327,8 +346,9 @@ void loop() {
     // This call fetches all the controllers' data.
     // Call this function in your main loop.
     bool dataUpdated = BP32.update();
-    if (dataUpdated)
+    if (dataUpdated) {
         processControllers();
+    }
 
     delay(15);
 }
