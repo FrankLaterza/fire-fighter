@@ -21,6 +21,12 @@
 #define RIGHT_BACK_MOTOR_PIN_2 18 
 #define RIGHT_BACK_MOTOR_PIN_PWM 21 
 
+#define ULTRA_SONIC_ECHO_PIN 2
+#define ULTRA_SONIC_TRIG_PIN 4
+
+#define LEFT_FIRE_TRIG_PIN 12
+#define RIGHT_FIRE_TRIG_PIN 13
+
 typedef enum {
     FORWARD,
     BACKWARD
