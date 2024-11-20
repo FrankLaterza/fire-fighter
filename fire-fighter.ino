@@ -314,6 +314,11 @@ void setup() {
     pinMode(RIGHT_BACK_MOTOR_PIN_1, OUTPUT);
     pinMode(RIGHT_BACK_MOTOR_PIN_2, OUTPUT);
     pinMode(RIGHT_BACK_MOTOR_PIN_PWM, OUTPUT);
+    pinMode(ULTRA_SONIC_ECHO_PIN, OUTPUT);
+    pinMode(ULTRA_SONIC_TRIG_PIN, OUTPUT);
+    pinMode(LEFT_FIRE_TRIG_PIN, OUTPUT);
+    pinMode(RIGHT_FIRE_TRIG_PIN, OUTPUT);
+
     // enforce low
     digitalWrite(LED, LOW);
     digitalWrite(LEFT_FRONT_MOTOR_PIN_1, LOW);
@@ -355,6 +360,9 @@ void loop() {
     if (dataUpdated) {
         processControllers();
     }
+
+    // ------------- add sensor code here ------------- 
+
 
     delay(15);
 }
