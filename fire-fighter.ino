@@ -28,6 +28,14 @@
 #define RIGHT_FIRE_TRIG_PIN 13
 
 typedef enum {
+    MANUAL_MODE,
+    SEEK_MODE,
+    SPAY_N_PRAY_MODE, 
+} modes_e;
+
+modes_e current_mode;
+
+typedef enum {
     FORWARD,
     BACKWARD
 } direction_e;
@@ -148,18 +156,21 @@ void processGamepad(ControllerPtr ctl) {
 
     //== PS4 Square button = 0x0004 ==//
     if (ctl->buttons() == 0x0004) {
+        current_mode = SPAY_N_PRAY_MODE;
     }
     if (ctl->buttons() != 0x0004) {
     }
 
     //== PS4 Triangle button = 0x0008 ==//
     if (ctl->buttons() == 0x0008) {
+        current_mode = MANUAL_MODE;
     }
     if (ctl->buttons() != 0x0008) {
     }
 
     //== PS4 Circle button = 0x0002 ==//
     if (ctl->buttons() == 0x0002) {
+        current_mode = SEEK_MODE;
     }
     if (ctl->buttons() != 0x0002) {
     }
@@ -269,6 +280,8 @@ void processGamepad(ControllerPtr ctl) {
         strafe_speed = 0;
     }
 
+    // if current mode mode is manual then skip the motor output
+    if (current_mode == MANUAL_MODE) { return; }
     // Combine forward/backward, turning, and strafing inputs for each motor
     move_motor(FRONT_LEFT, common_speed + turn_speed + strafe_speed);   // front-left motor
     move_motor(FRONT_RIGHT, common_speed - turn_speed + strafe_speed);  // front-right motor
@@ -279,7 +292,7 @@ void processGamepad(ControllerPtr ctl) {
     if (ctl->axisRY()) {
         // code for when right joystick moves along y-axis
     }
-    dumpGamepad(ctl);
+    // dumpGamepad(ctl);
 }
 
 void processControllers() {
@@ -361,8 +374,18 @@ void loop() {
         processControllers();
     }
 
-    // ------------- add sensor code here ------------- 
-
+    switch (current_mode) {
+        case MANUAL_MODE:
+            /* -------------- logic for manual mode -------------- */
+            // do nothing 
+            break;
+        case SEEK_MODE:
+            /* -------------- logic for seek mode -------------- */
+            break;
+        case SPAY_N_PRAY_MODE:
+            /* -------------- logic for spray and pray mode -------------- */
+            break;
+    }
 
     delay(15);
 }
