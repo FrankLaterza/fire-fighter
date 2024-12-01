@@ -24,13 +24,40 @@
 #define ULTRA_SONIC_ECHO_PIN 2
 #define ULTRA_SONIC_TRIG_PIN 4
 
-#define LEFT_FIRE_TRIG_PIN 12
-#define RIGHT_FIRE_TRIG_PIN 13
+#define LEFT_FIRE_TRIG_PIN 35 
+#define RIGHT_FIRE_TRIG_PIN 34 
+
+#define SQUIRT_PIN 23
+
+#define ANALOG_THRESHOLD 4095 // Threshold of analog IR output
+#define FLAME_MAGNITUDE_THRESHOLD 2000 // Threshold of flame magnitude (calibrate as needed)
+#define IR_DIFF_THRESHOLD 200 // Threshold of input diff
+
+#define INPUT_COUNT 30 // Length of cache
+
+#define MOTOR_UPPER_BOUND 256 // Upper bound of exerted motor power
+#define MOTOR_LOWER_BOUND -255 // Lower bound of exerted motor power
+
+#define ONE_SECOND 1000 // One second in milliseconds
+#define TICK_TIME 500 // Delay time in milliseconds (ms)
+
+//dThese are used for the ultrasonic logic
+#define SOUND_SPEED 0.034
+#define CM_TO_INCH 0.393701
+
+long duration;
+float distanceCm;
+// DEL //
+// typedef enum {
+//     MANUAL_MODE,
+//     AVOIDANCE_MODE,
+//     HOT_PURSUIT_MODE, 
+// } modes_e;
+// DEL ^
 
 typedef enum {
     MANUAL_MODE,
-    SEEK_MODE,
-    SPAY_N_PRAY_MODE, 
+    AUTOMATIC_MODE, 
 } modes_e;
 
 modes_e current_mode;
@@ -49,6 +76,206 @@ typedef enum {
 } motor_e;
 
 ControllerPtr myControllers[BP32_MAX_GAMEPADS];
+
+// Left IR sensor
+int leftInputSum; // Records sum of [INPUT_COUNT] number of inputs
+int leftInputMean; // Stores mean calculation: leftInputSum / INPUT_COUNT
+
+// Right IR sensor
+int rightInputSum; // Records sum of [INPUT_COUNT] number of inputs
+int rightInputMean; // Stores mean calculation: leftInputSum / INPUT_COUNT
+
+int inputDiff; // leftInputMean - rightInputMean
+int robotMode; // Controls mode of robot
+
+int inc;
+
+// Resets symbols to zero
+void resetSymbols() {
+  leftInputSum = 0;
+  leftInputMean = 0;
+  rightInputSum = 0;
+  rightInputMean = 0;
+  inputDiff = 0;
+
+  // Seed randomizer
+  randomSeed(inc);
+}
+
+// Records an instance of sensor data
+void calcSensorData() {
+  // Set cache
+  for(int i = 0; i < INPUT_COUNT; i++) {
+    leftInputSum += analogRead(LEFT_FIRE_TRIG_PIN);
+    rightInputSum += analogRead(RIGHT_FIRE_TRIG_PIN);
+  }
+
+  leftInputMean = leftInputSum / INPUT_COUNT;
+  rightInputMean = rightInputSum / INPUT_COUNT;
+  inputDiff = leftInputMean - rightInputMean;
+
+  // ----- Collect ultrasonic data ------ //
+  digitalWrite(ULTRA_SONIC_TRIG_PIN, HIGH);
+  delayMicroseconds(2);
+  //set trigger pin to high for 10 ms
+  digitalWrite(ULTRA_SONIC_TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(ULTRA_SONIC_TRIG_PIN, LOW);
+
+  duration = pulseIn(ULTRA_SONIC_ECHO_PIN, HIGH);
+  //calculate the distance
+  distanceCm = duration * SOUND_SPEED/2;
+}
+
+void moveYAxis(int rate) {
+  move_motor(FRONT_LEFT, rate);
+  move_motor(FRONT_RIGHT, rate);
+  move_motor(BACK_LEFT, rate);
+  move_motor(BACK_RIGHT, rate);
+}
+
+void rotate(int rate) {
+  move_motor(FRONT_LEFT, rate);
+  move_motor(FRONT_RIGHT, -rate);
+  move_motor(BACK_LEFT, rate);
+  move_motor(BACK_RIGHT, -rate);
+}
+
+// Preforms a blind search of the area around the robot by
+// rotating in place, then moving forward.
+void searchMode() {
+  Serial.println("Searching for flames...");
+
+  // int rand = random(MOTOR_LOWER_BOUND, MOTOR_UPPER_BOUND); // DEL
+
+  // rotate(rand); // DEL
+
+  rotate(random(MOTOR_LOWER_BOUND, MOTOR_UPPER_BOUND));
+
+  // Serial.println(rand); // DEL
+
+  moveYAxis(50);
+  
+}
+
+// Performs a targeted pursuit of a detected flame by aiming and moving
+// straight towards the precise area of detection. This
+// is determined when the sensor input breaks the threshold.
+void pursuitMode() {
+  Serial.println("In pursuit of flames...");
+  
+  // If right sensor detects more IR, then turn right
+  if(inputDiff > IR_DIFF_THRESHOLD) {
+    rotate(50);
+  }
+  // If left sensor detects more IR, then turn left
+  else if (inputDiff < -IR_DIFF_THRESHOLD) {
+    rotate(-50);
+  }
+  moveYAxis(100);
+
+}
+
+
+
+
+// Goal: Get around obstacle and continue search
+void avoidanceMode() {
+  Serial.println("Avoiding detected obstacle...");
+  
+  // ---- TODO ----- //
+}
+
+// Goal: Get around obstacle and set robot in general direction of
+// detected flame
+void workaroundMode() {
+  Serial.println("Working around detected obstacle...");
+  
+  // ---- TODO ----- //
+}
+
+
+
+
+// Performs a sprinkler-style spray of the flame until it is no longer
+// detected by the flame sensor. Extra water is ejected to ensure
+// the flame is gone. Once in this mode, the robot stays in this mode.
+void sprayNPrayMode() {
+  Serial.println("Spraying and praying...");
+
+  // If right sensor detects more IR, then turn right
+  if(inputDiff > IR_DIFF_THRESHOLD) {
+    rotate(25);
+  }
+  // If left sensor detects more IR, then turn left
+  else if (inputDiff < -IR_DIFF_THRESHOLD) {
+    rotate(-25);
+  }
+
+  // ----- Code for spraying the water gun ------- //
+
+}
+
+// Logic block for deciding which mode the robot is in
+void modeLogic() {
+  // Determines robot robotMode
+  if(robotMode != 4) { // Has not arrived at flame
+    if((1)/*No obstructions detected*/) {
+      if(abs(inputDiff) <= 0)
+      {robotMode = 0;} // No flame, no obstruction
+      else if(abs(inputDiff) > 0) {
+        robotMode = 1; // Yes flame, no obstruction
+
+        if(leftInputMean < FLAME_MAGNITUDE_THRESHOLD
+        && rightInputMean < FLAME_MAGNITUDE_THRESHOLD)
+        {robotMode = 4;} // Arrived at flame
+      }
+      else
+      {robotMode = -1;}
+    }
+    else if((0)/*Obstructions detected*/) {
+      if(abs(inputDiff) == 0)
+      {robotMode = 2;} // No flame, yes obstruction
+      else if(abs(inputDiff) > 0)
+      {robotMode = 3;} // Yes flame, yes obstruction
+      else
+      {robotMode = -1;}
+    }
+    else
+    {robotMode = -1;}
+
+  }
+}
+
+// Switch for robotMode (determines next action)
+void modeSwitch() {
+  switch(robotMode)
+  {
+    case 0:
+      // Goes into searchMode()
+      searchMode();
+      break;
+    case 1:
+      // Goes into pursuitMode()
+      pursuitMode();
+      break;
+    case 2:
+      // Goes into avoidanceMode()
+      avoidanceMode();
+      break;
+    case 3:
+      // Goes into workaroundMode()
+      workaroundMode();
+      break;
+    case 4:
+      // Goes into sprayNPrayMode()
+      sprayNPrayMode();
+      break;
+    default: // Error
+      Serial.println("Error: No granular mode specified.");
+      break;
+  }
+}
 
 // This callback gets called any timd at the same time.
 void onConnectedController(ControllerPtr ctl) {
@@ -156,7 +383,8 @@ void processGamepad(ControllerPtr ctl) {
 
     //== PS4 Square button = 0x0004 ==//
     if (ctl->buttons() == 0x0004) {
-        current_mode = SPAY_N_PRAY_MODE;
+        // current_mode = HOT_PURSUIT_MODE;
+        current_mode = AUTOMATIC_MODE;
     }
     if (ctl->buttons() != 0x0004) {
     }
@@ -170,7 +398,8 @@ void processGamepad(ControllerPtr ctl) {
 
     //== PS4 Circle button = 0x0002 ==//
     if (ctl->buttons() == 0x0002) {
-        current_mode = SEEK_MODE;
+        // current_mode = AVOIDANCE_MODE;
+        current_mode = AUTOMATIC_MODE;
     }
     if (ctl->buttons() != 0x0002) {
     }
@@ -309,10 +538,17 @@ void processControllers() {
 
 // Arduino setup function. Runs in CPU 1
 void setup() {
+    Serial.println("Start reached"); // DEL
     Serial.begin(115200);
     Serial.printf("Firmware: %s\n", BP32.firmwareVersion());
     const uint8_t* addr = BP32.localBdAddress();
     Serial.printf("BD Addr: %2X:%2X:%2X:%2X:%2X:%2X\n", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
+
+    leftInputSum = 0;
+    leftInputMean = 0;
+    rightInputSum = 0;
+    rightInputMean = 0;
+    robotMode = 0; // Initially seeking
 
     pinMode(LED, OUTPUT);
     pinMode(LEFT_FRONT_MOTOR_PIN_1, OUTPUT);
@@ -327,10 +563,11 @@ void setup() {
     pinMode(RIGHT_BACK_MOTOR_PIN_1, OUTPUT);
     pinMode(RIGHT_BACK_MOTOR_PIN_2, OUTPUT);
     pinMode(RIGHT_BACK_MOTOR_PIN_PWM, OUTPUT);
-    pinMode(ULTRA_SONIC_ECHO_PIN, OUTPUT);
+    pinMode(ULTRA_SONIC_ECHO_PIN, INPUT);
     pinMode(ULTRA_SONIC_TRIG_PIN, OUTPUT);
     pinMode(LEFT_FIRE_TRIG_PIN, OUTPUT);
     pinMode(RIGHT_FIRE_TRIG_PIN, OUTPUT);
+    pinMode(SQUIRT_PIN, OUTPUT);
 
     // enforce low
     digitalWrite(LED, LOW);
@@ -346,6 +583,7 @@ void setup() {
     digitalWrite(RIGHT_BACK_MOTOR_PIN_1, LOW);
     digitalWrite(RIGHT_BACK_MOTOR_PIN_2, LOW);
     digitalWrite(RIGHT_BACK_MOTOR_PIN_PWM, LOW);
+    digitalWrite(SQUIRT_PIN, LOW);
 
     // Setup the Bluepad32 callbacks
     BP32.setup(&onConnectedController, &onDisconnectedController);
@@ -363,6 +601,8 @@ void setup() {
     // - Second one, which is a "virtual device", is a mouse.
     // By default, it is disabled.
     BP32.enableVirtualDevice(false);
+
+    // Delay before start to plug ESP32 in (necessary to start with proper input)
 }
 
 // Arduino loop function. Runs in CPU 1.
@@ -374,18 +614,95 @@ void loop() {
         processControllers();
     }
 
+    resetSymbols(); // Necessary symbols reset
+    calcSensorData(); // Sensor data instance(s) recorded
+    // digitalWrite(ULTRA_SONIC_TRIG_PIN, HIGH);
+    current_mode = AUTOMATIC_MODE; // DEL
+    // *** Edit so that MANUAL_MODE takes over when button press is detected *** //
+    // *** Do ^this^ in modeLogic() *** //
+
+    // *** Potentially start by spinning around *** //
     switch (current_mode) {
-        case MANUAL_MODE:
+        case MANUAL_MODE: // Controller takes over
             /* -------------- logic for manual mode -------------- */
             // do nothing 
             break;
-        case SEEK_MODE:
-            /* -------------- logic for seek mode -------------- */
+        case AUTOMATIC_MODE: // Sensor input
+            /* -------------- logic for auto mode -------------- */
+            
+            Serial.println(leftInputMean); // DEL
+            Serial.println(rightInputMean); // DEL
+            // Serial.println(inputDiff); // DEL
+            Serial.println(distanceCm); // DEL
+
+            // modeLogic();
+            // Serial.println(robotMode); // DEL
+            // modeSwitch();
+
             break;
-        case SPAY_N_PRAY_MODE:
-            /* -------------- logic for spray and pray mode -------------- */
-            break;
+        default:
+            Serial.println("Error: No central mode specified.");
     }
 
-    delay(15);
+    Serial.println(inc++/2); // DEL ?
+    Serial.println(); // DEL 
+
+
+    // ---------------------- DEAD CODE ------------------------- //
+    // switch (current_mode) {
+    //     case MANUAL_MODE: // Controller takes over
+    //         /* -------------- logic for manual mode -------------- */
+    //         // do nothing 
+    //         break;
+    //     case AVOIDANCE_MODE: // Ultrasonic takes over
+    //         /* -------------- logic for seek mode -------------- */
+    //         break;
+    //     case HOT_PURSUIT_MODE: // Fire sensing takes over
+    //         /* -------------- logic for spray and pray mode -------------- */
+    //         /* ---------------------- NEEDS WORK ------------------------ */
+
+    //         Serial.println(leftInputMean); // DEL
+    //         Serial.println(rightInputMean); // DEL
+    //         Serial.println(leftInputMean - rightInputMean); // DEL
+    //         Serial.println(inc++); // DEL
+    //         Serial.println(); // DEL
+
+    //         // Determines robot robotMode
+    //         if(abs(inputDiff) == 0)
+    //         {robotMode = 0;}
+    //         else if(abs(inputDiff) > 0)
+    //         {robotMode = 1;}
+    //         else if(/*target lock*/) // UNCOM
+    //         {robotMode = 2;} // UNCOM
+    //         else
+    //         {robotMode = 0;}
+
+    //         // Serial.println(robotMode); // DEL
+
+    //         // Mode switch
+    //         switch(robotMode)
+    //         {
+    //           case 0:
+    //             // Goes into searchMode()
+    //             searchMode();
+    //             break;
+    //           case 1:
+    //             // Goes into pursuitMode()
+    //             break;
+    //           case 2:
+    //             // Goes into targetLockMode()
+    //             break;
+    //           default: // Error
+    //             Serial.println("Error: No flame detection mode specified.");
+    //             break;
+    //         }
+
+    //         break;
+
+    //     default:
+    //         Serial.println("Error: No central mode specified.");
+    // }
+    // -----------^---------- DEAD CODE ---------^--------------- //
+
+    delay(TICK_TIME);
 }
