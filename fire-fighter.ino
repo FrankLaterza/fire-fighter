@@ -60,7 +60,7 @@ typedef enum {
     AUTOMATIC_MODE, 
 } modes_e;
 
-modes_e current_mode;
+modes_e current_mode = MANUAL_MODE;
 
 typedef enum {
     FORWARD,
@@ -141,6 +141,21 @@ void rotate(int rate) {
   move_motor(BACK_RIGHT, -rate);
 }
 
+// positive is left
+void strafe(int rate) {
+  move_motor(FRONT_LEFT, -rate);
+  move_motor(FRONT_RIGHT, -rate);
+  move_motor(BACK_LEFT, rate);
+  move_motor(BACK_RIGHT, rate);
+}
+
+void stop_all(){
+  move_motor(FRONT_LEFT, 0);
+  move_motor(FRONT_RIGHT, 0);
+  move_motor(BACK_LEFT, 0);
+  move_motor(BACK_RIGHT, 0);
+}
+
 // Preforms a blind search of the area around the robot by
 // rotating in place, then moving forward.
 void searchMode() {
@@ -175,9 +190,6 @@ void pursuitMode() {
   moveYAxis(100);
 
 }
-
-
-
 
 // Goal: Get around obstacle and continue search
 void avoidanceMode() {
@@ -277,6 +289,81 @@ void modeSwitch() {
   }
 }
 
+void spray_and_pray() {
+    // turn on the sprayer
+    digitalWrite(SQUIRT_PIN, HIGH);
+    delay(500);
+    strafe(255);
+    delay(500);
+    strafe(-255);
+    delay(1000);
+    strafe(255);
+    delay(1000);
+    strafe(-255);
+    delay(500);
+    stop_all();
+    digitalWrite(SQUIRT_PIN, LOW);
+}
+
+int search_res = 100; // ms of pausing for each search
+// note: the search could potentially find the flame
+void delay_and_search(int ms){
+    for(int i = 0; i < ms/search_res; i++) {
+        resetSymbols();
+        calcSensorData();
+        // it is very likely that there is a flame in front
+        if (leftInputMean <= 2000 || rightInputMean <= 2000) {
+            stop_all();
+            delay(500);
+            spray_and_pray();
+            break;
+        }
+        delay(search_res);
+    }
+}
+
+void delay_and_avoid(int ms){
+    resetSymbols();
+    calcSensorData(); // collected at the end to save delay for calculation delay
+    for(int i = 0; i < ms/search_res; i++) {
+        resetSymbols();
+        calcSensorData();
+        // it is very likely that there is something infront
+        if (distanceCm <= 20) {
+            moveYAxis(-255);
+            delay(500);
+            rotate(255);
+            delay(2000);
+            stop_all();
+            break;
+        }
+        delay(search_res);
+    }
+}
+
+
+int rotate_max = 5; // jerk rotate 10 times
+int rotate_count = 0;
+
+void basic_flame_search(){
+
+    // basic serach loop
+    rotate(255);
+    delay_and_search(200);
+    stop_all();
+    delay(300);
+    rotate_count++;
+    if (rotate_count >= rotate_max) {
+        // we are done going in circles so just move forward as long as there are not obsticals
+        moveYAxis(255); // move forward
+        delay_and_avoid(2000);
+        stop_all();
+        delay(300);
+        // TODO: check for obsticals
+        rotate_count = 0;
+    }
+} 
+
 // This callback gets called any timd at the same time.
 void onConnectedController(ControllerPtr ctl) {
     bool foundEmptySlot = false;
@@ -343,7 +430,6 @@ void dumpGamepad(ControllerPtr ctl) {
 void move_motor(motor_e motor, int16_t val) {
     // Determine direction based on the sign of 'val'
     direction_e dir = (val >= 0) ? FORWARD : BACKWARD;
-
     // Ensure 'val' is positive for PWM (0-255)
     uint8_t pwm_val = abs(val);
 
@@ -447,9 +533,11 @@ void processGamepad(ControllerPtr ctl) {
     //== PS4 R2 trigger button = 0x0080 ==//
     if (ctl->buttons() == 0x0080) {
         // code for when R2 button is pushed
+        digitalWrite(SQUIRT_PIN, HIGH);
     }
     if (ctl->buttons() != 0x0080) {
         // code for when R2 button is released
+        digitalWrite(SQUIRT_PIN, LOW);
     }
 
     //== PS4 L1 trigger button = 0x0010 ==//
@@ -472,12 +560,12 @@ void processGamepad(ControllerPtr ctl) {
     int common_speed = 0;
 
     //== LEFT JOYSTICK - UP/DOWN (FORWARD/BACKWARD) ==//
-    if (ctl->axisY() <= -25) {
+    if (ctl->axisY() <= -70) {
         // moving forward
-        common_speed = map(ctl->axisY(), -25, -520, 0, 255);
-    } else if (ctl->axisY() >= 25) {
+        common_speed = map(ctl->axisY(), -70, -520, 0, 255);
+    } else if (ctl->axisY() >= 70) {
         // moving backward
-        common_speed = map(ctl->axisY(), 25, 520, 0, -255);
+        common_speed = map(ctl->axisY(), 70, 520, 0, -255);
     } else {
         // no forward/backward movement
         common_speed = 0;
@@ -485,12 +573,12 @@ void processGamepad(ControllerPtr ctl) {
 
     //== LEFT JOYSTICK - LEFT/RIGHT (TURNING) ==//
     int turn_speed = 0;
-    if (ctl->axisX() <= -25) {
+    if (ctl->axisX() <= -70) {
         // turning left
-        turn_speed = map(ctl->axisX(), -25, -520, 0, -150);
-    } else if (ctl->axisX() >= 25) {
+        turn_speed = map(ctl->axisX(), -70, -520, 0, -255);
+    } else if (ctl->axisX() >= 70) {
         // turning right
-        turn_speed = map(ctl->axisX(), 25, 520, 0, 150);
+        turn_speed = map(ctl->axisX(), 70, 520, 0, 255);
     } else {
         // no turning movement
         turn_speed = 0;
@@ -498,19 +586,19 @@ void processGamepad(ControllerPtr ctl) {
 
     //== RIGHT JOYSTICK - X AXIS (STRAFING LEFT/RIGHT) ==//
     int strafe_speed = 0;
-    if (ctl->axisRX() <= -25) {
+    if (ctl->axisRX() <= -70) {
         // strafing left
-        strafe_speed = map(ctl->axisRX(), -25, -520, 0, -255);
-    } else if (ctl->axisRX() >= 25) {
+        strafe_speed = map(ctl->axisRX(), -70, -520, 0, -255);
+    } else if (ctl->axisRX() >= 70) {
         // strafing right
-        strafe_speed = map(ctl->axisRX(), 25, 520, 0, 255);
+        strafe_speed = map(ctl->axisRX(), 70, 520, 0, 255);
     } else {
         // no strafing movement
         strafe_speed = 0;
     }
 
     // if current mode mode is manual then skip the motor output
-    if (current_mode == MANUAL_MODE) { return; }
+    if (current_mode != MANUAL_MODE) { return; }
     // Combine forward/backward, turning, and strafing inputs for each motor
     move_motor(FRONT_LEFT, common_speed + turn_speed + strafe_speed);   // front-left motor
     move_motor(FRONT_RIGHT, common_speed - turn_speed + strafe_speed);  // front-right motor
@@ -562,11 +650,10 @@ void setup() {
     pinMode(LEFT_BACK_MOTOR_PIN_PWM, OUTPUT);
     pinMode(RIGHT_BACK_MOTOR_PIN_1, OUTPUT);
     pinMode(RIGHT_BACK_MOTOR_PIN_2, OUTPUT);
-    pinMode(RIGHT_BACK_MOTOR_PIN_PWM, OUTPUT);
     pinMode(ULTRA_SONIC_ECHO_PIN, INPUT);
     pinMode(ULTRA_SONIC_TRIG_PIN, OUTPUT);
-    pinMode(LEFT_FIRE_TRIG_PIN, OUTPUT);
-    pinMode(RIGHT_FIRE_TRIG_PIN, OUTPUT);
+    // pinMode(LEFT_FIRE_TRIG_PIN, OUTPUT);
+    // pinMode(RIGHT_FIRE_TRIG_PIN, OUTPUT);
     pinMode(SQUIRT_PIN, OUTPUT);
 
     // enforce low
@@ -617,9 +704,9 @@ void loop() {
     resetSymbols(); // Necessary symbols reset
     calcSensorData(); // Sensor data instance(s) recorded
     // digitalWrite(ULTRA_SONIC_TRIG_PIN, HIGH);
-    current_mode = AUTOMATIC_MODE; // DEL
     // *** Edit so that MANUAL_MODE takes over when button press is detected *** //
     // *** Do ^this^ in modeLogic() *** //
+
 
     // *** Potentially start by spinning around *** //
     switch (current_mode) {
@@ -630,79 +717,22 @@ void loop() {
         case AUTOMATIC_MODE: // Sensor input
             /* -------------- logic for auto mode -------------- */
             
-            Serial.println(leftInputMean); // DEL
-            Serial.println(rightInputMean); // DEL
+            // Serial.println(leftInputMean); // DEL
+            // Serial.println(rightInputMean); // DEL
             // Serial.println(inputDiff); // DEL
             Serial.println(distanceCm); // DEL
 
             // modeLogic();
             // Serial.println(robotMode); // DEL
             // modeSwitch();
+            basic_flame_search();
 
             break;
         default:
             Serial.println("Error: No central mode specified.");
     }
 
-    Serial.println(inc++/2); // DEL ?
-    Serial.println(); // DEL 
+    inc++; // for the seed 
 
-
-    // ---------------------- DEAD CODE ------------------------- //
-    // switch (current_mode) {
-    //     case MANUAL_MODE: // Controller takes over
-    //         /* -------------- logic for manual mode -------------- */
-    //         // do nothing 
-    //         break;
-    //     case AVOIDANCE_MODE: // Ultrasonic takes over
-    //         /* -------------- logic for seek mode -------------- */
-    //         break;
-    //     case HOT_PURSUIT_MODE: // Fire sensing takes over
-    //         /* -------------- logic for spray and pray mode -------------- */
-    //         /* ---------------------- NEEDS WORK ------------------------ */
-
-    //         Serial.println(leftInputMean); // DEL
-    //         Serial.println(rightInputMean); // DEL
-    //         Serial.println(leftInputMean - rightInputMean); // DEL
-    //         Serial.println(inc++); // DEL
-    //         Serial.println(); // DEL
-
-    //         // Determines robot robotMode
-    //         if(abs(inputDiff) == 0)
-    //         {robotMode = 0;}
-    //         else if(abs(inputDiff) > 0)
-    //         {robotMode = 1;}
-    //         else if(/*target lock*/) // UNCOM
-    //         {robotMode = 2;} // UNCOM
-    //         else
-    //         {robotMode = 0;}
-
-    //         // Serial.println(robotMode); // DEL
-
-    //         // Mode switch
-    //         switch(robotMode)
-    //         {
-    //           case 0:
-    //             // Goes into searchMode()
-    //             searchMode();
-    //             break;
-    //           case 1:
-    //             // Goes into pursuitMode()
-    //             break;
-    //           case 2:
-    //             // Goes into targetLockMode()
-    //             break;
-    //           default: // Error
-    //             Serial.println("Error: No flame detection mode specified.");
-    //             break;
-    //         }
-
-    //         break;
-
-    //     default:
-    //         Serial.println("Error: No central mode specified.");
-    // }
-    // -----------^---------- DEAD CODE ---------^--------------- //
-
-    delay(TICK_TIME);
+    // delay(TICK_TIME);
 }
