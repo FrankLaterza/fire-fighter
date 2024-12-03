@@ -312,7 +312,7 @@ void delay_and_search(int ms){
         resetSymbols();
         calcSensorData();
         // it is very likely that there is a flame in front
-        if (leftInputMean <= 2000 || rightInputMean <= 2000) {
+        if (leftInputMean <= 3000 || rightInputMean <= 3000) {
             stop_all();
             delay(500);
             spray_and_pray();
@@ -333,7 +333,7 @@ void delay_and_avoid(int ms){
             moveYAxis(-255);
             delay(500);
             rotate(255);
-            delay(2000);
+            delay(500);
             stop_all();
             break;
         }
@@ -342,13 +342,13 @@ void delay_and_avoid(int ms){
 }
 
 
-int rotate_max = 5; // jerk rotate 10 times
+int rotate_max = 18; // jerk rotate 18 times
 int rotate_count = 0;
 
 void basic_flame_search(){
 
     // basic serach loop
-    rotate(255);
+    rotate(170);
     delay_and_search(200);
     stop_all();
     delay(300);
